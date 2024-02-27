@@ -1,220 +1,168 @@
 const express = require('express');
 const AWS = require('aws-sdk');
-
 require('dotenv').config();
-
-
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 
-// ตั้งค่า AWS
 AWS.config.update({
   region: process.env.REGION,
   accessKeyId: process.env.ACCESS_KEY_ID,
   secretAccessKey: process.env.SECRET_ACCESS_KEY
 });
 
-// สร้าง DynamoDB object
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 
 const app = express();
 app.use(cors());
-app.use(express.json()); // สำหรับ parsing application/json
-app.use(bodyParser.json()); // สำหรับรับ JSON data
-app.use(bodyParser.urlencoded({ extended: true })); // สำหรับรับ URL-encoded data
+app.use(express.json());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// ตั้งค่า route ต่างๆ
-app.get('/test11', (req, res) => {
-  res.send('Hello this is server mflow kart game !');
+function generateToken(user) {
+  return jwt.sign({ email: user.email }, process.env.JWT_SECRET_ACCESS_KEY, { expiresIn: '720h' });
+}
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (token == null) return res.sendStatus(401);
+
+  jwt.verify(token, process.env.JWT_SECRET_ACCESS_KEY, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+}
+
+app.post('/digiteye-api/register', async (req, res) => {
+  const { email, password, username } = req.body;
+
+  if (!username || username.trim() === '') {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    const params = {
+      TableName: "digiteye-api-game-carventure",
+      Item: {
+        "email": email,
+        "username": username,
+        "password": hashedPassword,
+        "point": 0
+      },
+      ConditionExpression: "attribute_not_exists(email)"
+    };
+
+    await dynamoDB.put(params).promise();
+    res.json({ message: "User registered successfully!" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: "Could not register user" });
+  }
 });
 
-// เพิ่ม route อื่นๆ ที่นี่
-app.post('/addPlayer', async (req, res) => {
-    try {
-      console.log("Received request:", req.body);
-  
-      // แปลง id เป็นตัวเลข
-      const idAsNumber = parseInt(req.body.id, 10);
-      if (isNaN(idAsNumber)) {
-        return res.status(400).send('Invalid id format');
-      }
-  
-      // ตรวจสอบว่ามีผู้เล่นด้วย id นี้อยู่แล้วหรือไม่
-      const checkParams = {
-        TableName: "user-mflow",
-        Key: {
-          id: idAsNumber
-        }
-      };
-      const existingPlayer = await dynamoDB.get(checkParams).promise();
-      if (existingPlayer.Item) {
-        return res.status(400).send('id นี้มีผู้ใช้แล้ว ไม่สามารถสมัครได้');
-      }
-  
-      // หากไม่มี id นี้ สร้างผู้เล่นใหม่
-      const newPlayer = {
-        id: idAsNumber,
-        name: req.body.name,
-        score: 0
-      };
-  
-      const params = {
-        TableName: "user-mflow",
-        Item: newPlayer
-      };
-  
-      await dynamoDB.put(params).promise();
-      res.status(200).json({ message: "Player added successfully", data: newPlayer });
-    } catch (error) {
-      console.error("Error adding player:", error);
-      res.status(500).send(error);
+app.post('/digiteye-api/login', async (req, res) => {
+  const { email, password } = req.body;
+  const params = {
+    TableName: "digiteye-api-game-carventure",
+    Key: {
+      "email": email
     }
-  });
-  
-  
+  };
 
-  //Get User
-  app.get('/getPlayerById/:id', async (req, res) => {
-    const params = {
-      TableName: "user-mflow",
+  try {
+    const { Item } = await dynamoDB.get(params).promise();
+    if (Item) {
+      const match = await bcrypt.compare(password, Item.password);
+      if (match) {
+        const token = generateToken({ email: Item.email });
+        res.json({ message: "Login successful", token });
+      } else {
+        res.status(400).json({ error: "Password is incorrect" });
+      }
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: "Login error" });
+  }
+});
+
+app.get('/digiteye-api/checkboxtoken', authenticateToken, async (req, res) => {
+  const email = req.user.email;
+  const params = {
+    TableName: "digiteye-api-game-carventure",
+    Key: {
+      "email": email
+    }
+  };
+
+  try {
+    const { Item } = await dynamoDB.get(params).promise();
+    if (Item) {
+      // เพิ่มการส่งค่า username และปรับ point เป็น point ใน response
+      res.json({ email: Item.email, username: Item.username, point: Item.point });
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: "Could not retrieve user information" });
+  }
+});
+
+app.post('/digiteye-api/addpointuser', authenticateToken, async (req, res) => {
+  const email = req.user.email; // ใช้ email จากข้อมูลที่ได้จาก JWT token
+  const { pointsToAdd } = req.body; // รับคะแนนที่ต้องการเพิ่มจาก body ของ request
+
+  const getUserParams = {
+    TableName: "digiteye-api-game-carventure",
+    Key: {
+      "email": email
+    }
+  };
+
+  try {
+    // ดึงข้อมูลผู้ใช้จาก DynamoDB
+    const { Item } = await dynamoDB.get(getUserParams).promise();
+    if (!Item) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // คำนวณคะแนนใหม่
+    const newPoints = (Item.point || 0) + pointsToAdd;
+
+    // อัปเดตคะแนนของผู้ใช้ใน DynamoDB
+    const updateParams = {
+      TableName: "digiteye-api-game-carventure",
       Key: {
-        id: parseInt(req.params.id, 10) // แปลงค่า id ที่ได้จาก string เป็น number
-      }
+        "email": email
+      },
+      UpdateExpression: "set point = :p",
+      ExpressionAttributeValues:{
+        ":p": newPoints
+      },
+      ReturnValues:"UPDATED_NEW"
     };
-  
-    try {
-      const data = await dynamoDB.get(params).promise();
-      if (data.Item) {
-        res.status(200).json(data.Item);
-      } else {
-        res.status(404).send('Player not found');
-      }
-    } catch (error) {
-      console.error("Error getting player:", error);
-      res.status(500).send(error);
-    }
-  });
 
-  //Get All Users
-  app.get('/getAllUsers', async (req, res) => {
-    const params = {
-      TableName: "user-mflow"
-    };
-  
-    try {
-      const data = await dynamoDB.scan(params).promise();
-      if (data.Items && data.Items.length > 0) {
-        res.status(200).json(data.Items);
-      } else {
-        res.status(404).send('No users found');
-      }
-    } catch (error) {
-      console.error("Error getting users:", error);
-      res.status(500).send(error);
-    }
-  });
-  
-  
-  //Update Score User
-  app.post('/updateScore/:id', async (req, res) => {
-    const userId = parseInt(req.params.id, 10);
-    const newScore = parseInt(req.body.score, 10); // คะแนนใหม่
-  
-    // ดึงคะแนนปัจจุบันจากฐานข้อมูล
-    const getParams = {
-      TableName: "user-mflow",
-      Key: { id: userId }
-    };
-  
-    try {
-      const currentData = await dynamoDB.get(getParams).promise();
-      const currentScore = currentData.Item ? currentData.Item.score : 0;
-  
-      // เปรียบเทียบและอัพเดทคะแนนถ้าคะแนนใหม่สูงกว่า
-      if (newScore > currentScore) {
-        const updateParams = {
-          TableName: "user-mflow",
-          Key: { id: userId },
-          UpdateExpression: "set score = :newScore",
-          ExpressionAttributeValues: {
-            ":newScore": newScore
-          },
-          ReturnValues: "UPDATED_NEW"
-        };
-  
-        const updateResult = await dynamoDB.update(updateParams).promise();
-        res.status(200).json(updateResult.Attributes);
-      } else {
-        res.status(200).json({ message: "No update required, new score is not higher." });
-      }
-  
-    } catch (error) {
-      console.error("Error in score update process:", error);
-      res.status(500).send(error);
-    }
-  });
-  
-  
-  
-  app.post('/login', async (req, res) => {
-    try {
-      // แปลง id เป็นตัวเลข
-      const idAsNumber = parseInt(req.body.id, 10);
-      if (isNaN(idAsNumber)) {
-        return res.status(400).send('Invalid id format');
-      }
-  
-      // ตรวจสอบในฐานข้อมูล
-      const params = {
-        TableName: "user-mflow",
-        Key: {
-          id: idAsNumber
-        }
-      };
-  
-      const result = await dynamoDB.get(params).promise();
-      if (result.Item) {
-        // ถ้ามีข้อมูล user ส่งข้อมูลนั้นกลับไป
-        res.status(200).json(result.Item);
-      } else {
-        // ถ้าไม่พบข้อมูล user
-        res.status(404).send('User not found');
-      }
-    } catch (error) {
-      console.error("Error on login:", error);
-      res.status(500).send(error);
-    }
-  });
+    await dynamoDB.update(updateParams).promise();
 
-  app.post('/checkId', async (req, res) => {
-    const userId = parseInt(req.body.id, 10);
-  
-    const params = {
-      TableName: "user-mflow",
-      Key: {
-        id: userId
-      }
-    };
-  
-    try {
-      const data = await dynamoDB.get(params).promise();
-      
-      // ตรวจสอบว่าพบ id ในฐานข้อมูลหรือไม่
-      if (data.Item) {
-        res.status(200).json({ isUnique: false }); // id ซ้ำ
-      } else {
-        res.status(200).json({ isUnique: true }); // id ไม่ซ้ำ
-      }
-    } catch (error) {
-      console.error("Error in checking ID:", error);
-      res.status(500).send(error);
-    }
-  });
-  
-  
-  
+    res.json({ message: "User points updated successfully", newPoints });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Could not update user points" });
+  }
+});
 
-const port = 3000;
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}.`);
 });
