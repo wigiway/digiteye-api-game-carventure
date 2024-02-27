@@ -1,7 +1,7 @@
 const express = require('express');
 const AWS = require('aws-sdk');
 require('dotenv').config();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const saltRounds = 10;
 const bodyParser = require('body-parser');
 const cors = require('cors');
