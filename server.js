@@ -38,6 +38,10 @@ function authenticateToken(req, res, next) {
   });
 }
 
+app.get('/', (req, res) => {
+  res.json({ message: 'DIGITEYE API' });
+});
+
 app.post('/digiteye-api/register', async (req, res) => {
   const { email, password, username } = req.body;
 
