@@ -11,7 +11,7 @@ AWS.config.update({
   secretAccessKey: process.env.SECRET_ACCESS_KEY
 });
 
-const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const dynamoDb = new AWS.DynamoDB.DocumentClient();
 
 const app = express();
 app.use(cors());
@@ -28,54 +28,46 @@ app.get('/', (req, res) => {
 
 const tableName = 'digiteye-api-game-carventure';
 
-app.post('/digiteye-api/addpointuser', async (req, res) => {
+app.post('/redeem', (req, res) => {
   const { name, email, point } = req.body;
-
-  try {
-    // ตรวจสอบว่ามีผู้ใช้หรือไม่
-    const params = {
+  // Check if the email already exists in the database
+  const params = {
       TableName: tableName,
-      Key: {
-        'email': email,
-      },
-    };
+      IndexName: "email-index", // ต้องสร้าง Global Secondary Index ใน DynamoDB สำหรับคอลัมน์ email
+      KeyConditionExpression: "email = :email",
+      ExpressionAttributeValues: {
+          ":email": email
+      }
+  };
 
-    const { Item } = await dynamoDB.get(params).promise();
+  dynamoDb.query(params, (err, data) => {
+      if (err) {
+          res.status(500).send({ message: "Error accessing the database", error: err });
+      } else if (data.Items.length > 0) {
+          // Email already exists
+          res.status(400).send({ message: "This email has already claimed a reward." });
+      } else {
+          // Email is unique, proceed to save the new data
+          const insertParams = {
+              TableName: tableName,
+              Item: { name, email, point }
+          };
 
-    if (Item) {
-      // อัพเดทผู้ใช้
-      const updateParams = {
-        TableName: tableName,
-        Key: {
-          'email': email,
-        },
-        UpdateExpression: 'set point = point + :val',
-        ExpressionAttributeValues:{
-          ':val': point,
-        },
-        ReturnValues:"UPDATED_NEW"
-      };
-
-      await dynamoDB.update(updateParams).promise();
-      res.status(200).send('Points updated successfully.');
-    } else {
-      // สร้างผู้ใช้ใหม่
-      const putParams = {
-        TableName: tableName,
-        Item: {
-          'email': email,
-          'name': name,
-          'point': point,
-        },
-      };
-
-      await dynamoDB.put(putParams).promise();
-      res.status(201).send('successfully.');
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).send(error.toString());
-  }
+          dynamoDb.put(insertParams, (err) => {
+              if (err) {
+                  res.status(500).send({ message: "Error saving data", error: err });
+              } else {
+                  // Respond with success message including the points
+                  res.status(201).send({
+                    message: "Data saved successfully",
+                    pointsReceived: point,
+                    name: name, // เพิ่ม name ในการตอบกลับ
+                    email: email // เพิ่ม email ในการตอบกลับ
+                });                
+              }
+          });
+      }
+  });
 });
 
 
