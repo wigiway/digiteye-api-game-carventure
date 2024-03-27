@@ -24,9 +24,10 @@ app.get('/', (req, res) => {
   res.json({ message: 'DIGITEYE API' });
 });
 
-
+//========================================================================== GAME CARVENTER
 
 const tableName = 'digiteye-api-game-carventure';
+const tableNameAdventuerNFTDigitalConfirm = 'adventurenft-digitalconfirm-carventer';
 
 app.post('/redeem', (req, res) => {
   const { name, email, point } = req.body;
@@ -50,7 +51,7 @@ app.post('/redeem', (req, res) => {
           // Email is unique, proceed to save the new data
           const insertParams = {
               TableName: tableName,
-              Item: { name, email, point }
+              Item: { name, email, point, redeemed: false }
           };
 
           dynamoDb.put(insertParams, (err) => {
@@ -69,6 +70,44 @@ app.post('/redeem', (req, res) => {
       }
   });
 });
+
+//========================================================================== GAME CARVENTER
+
+//========================================================================== APP AdVentureNFT
+
+app.get('/carventure/read/digitalconfirm', (req, res) => {
+  // รับ hashkey จาก query parameter
+  const { hashkey } = req.query;
+
+  if (!hashkey) {
+    return res.status(400).send({ error: 'Hashkey is required as a query parameter.' });
+  }
+
+  const params = {
+    TableName: tableNameAdventuerNFTDigitalConfirm,
+    Key: {
+      'hashkey': hashkey,
+    },
+  };
+
+  // ทำการอ่านข้อมูลจาก DynamoDB
+  dynamoDb.get(params, (err, data) => {
+    if (err) {
+      console.error('Error:', err);
+      res.status(500).send({ error: 'Could not fetch data from DynamoDB' });
+    } else {
+      if (data.Item) {
+        // สร้าง object ใหม่ที่ไม่รวม hashkey
+        const { hashkey, ...itemWithoutHashkey } = data.Item;
+        // ส่ง object นี้กลับไปใน response
+        res.status(200).send(itemWithoutHashkey);
+      } else {
+        res.status(404).send({ error: 'No record found for this hashkey' });
+      }
+    }
+  });
+});
+
 
 
 const PORT = process.env.PORT || 3000;
