@@ -110,7 +110,10 @@ app.get('/carventure/read/digitalconfirm', (req, res) => {
 
 
 app.post('/carventure/create/digitalconfirm', (req, res) => {
-  const { hashkey, tax, version, artist_name, number_of_product,special_color,edition_color,number_of_edition } = req.body;
+  const { hashkey, tax, version, artist_name, number_of_product, special_color, edition_color, number_of_edition } = req.body;
+
+  // Generate an ISO 8601 formatted string for the current date and time
+  const currentDate = new Date().toISOString();
 
   const params = {
       TableName: tableNameAdventuerNFTDigitalConfirm,
@@ -121,8 +124,11 @@ app.post('/carventure/create/digitalconfirm', (req, res) => {
           'artist_name': artist_name,
           'number_of_product': number_of_product,
           'special_color': special_color,
-          'edition_color':edition_color,
-          'number_of_edition':number_of_edition
+          'edition_color': edition_color,
+          'number_of_edition': number_of_edition,
+          'owner': "",
+          'date_tranfer': "",
+          'date_update': currentDate, // Set 'date_update' to the current date
       }
   };
 
@@ -135,6 +141,7 @@ app.post('/carventure/create/digitalconfirm', (req, res) => {
       }
   });
 });
+
 
 
 
