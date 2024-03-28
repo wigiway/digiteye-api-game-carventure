@@ -109,6 +109,34 @@ app.get('/carventure/read/digitalconfirm', (req, res) => {
 });
 
 
+app.post('/carventure/create/digitalconfirm', (req, res) => {
+  const { hashkey, tax, version, artist_name, number_of_product,special_color,edition_color,number_of_edition } = req.body;
+
+  const params = {
+      TableName: tableNameAdventuerNFTDigitalConfirm,
+      Item: {
+          'hashkey': hashkey,
+          'tax': tax,
+          'version': version,
+          'artist_name': artist_name,
+          'number_of_product': number_of_product,
+          'special_color': special_color,
+          'edition_color':edition_color,
+          'number_of_edition':number_of_edition
+      }
+  };
+
+  dynamoDb.put(params, (err, data) => {
+      if (err) {
+          console.error('Unable to add item. Error JSON:', JSON.stringify(err, null, 2));
+          res.status(500).send({ error: 'Could not create digital confirm' });
+      } else {
+          res.status(200).send({ message: 'Digital confirm created successfully' });
+      }
+  });
+});
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
