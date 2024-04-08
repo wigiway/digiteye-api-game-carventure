@@ -110,7 +110,7 @@ app.get('/carventure/read/digitalconfirm', (req, res) => {
 
 
 app.post('/carventure/create/digitalconfirm', (req, res) => {
-  const { hashkey, tax, version, artist_name, number_of_product, special_color, edition_color, number_of_edition } = req.body;
+  const { hashkey, tax, product_name, artist_name, number_of_product, special_color, edition_color, number_of_edition } = req.body;
 
   // Generate an ISO 8601 formatted string for the current date and time
   const currentDate = new Date().toISOString();
@@ -120,7 +120,7 @@ app.post('/carventure/create/digitalconfirm', (req, res) => {
       Item: {
           'hashkey': hashkey,
           'tax': tax,
-          'version': version,
+          'product_name': product_name,
           'artist_name': artist_name,
           'number_of_product': number_of_product,
           'special_color': special_color,
