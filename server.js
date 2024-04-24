@@ -4,6 +4,12 @@ require('dotenv').config();
 const bodyParser = require('body-parser');
 const cors = require('cors');
 
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' }); // ตั้งค่าการอัพโหลดไฟล์ไปยังโฟลเดอร์ 'uploads'
+
+const fs = require('fs');
+
+
 
 AWS.config.update({
   region: process.env.REGION,
@@ -12,6 +18,7 @@ AWS.config.update({
 });
 
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
+const s3 = new AWS.S3();
 
 const app = express();
 app.use(cors());
@@ -109,36 +116,55 @@ app.get('/carventure/read/digitalconfirm', (req, res) => {
 });
 
 
-app.post('/carventure/create/digitalconfirm', (req, res) => {
-  const { hashkey, tax, product_name, artist_name, number_of_product, special_color, edition_color, number_of_edition } = req.body;
+app.post('/carventure/create/digitalconfirm', upload.single('image'), (req, res) => {
+  const { hashkey, product_name, edition, year_of_product, artist_name, material, type, dimension, owner } = req.body;
+  const file = req.file;
+  const s3Path = `images/${file.originalname}`;
 
-  // Generate an ISO 8601 formatted string for the current date and time
-  const currentDate = new Date().toISOString();
-
-  const params = {
-      TableName: tableNameAdventuerNFTDigitalConfirm,
-      Item: {
-          'hashkey': hashkey,
-          'tax': tax,
-          'product_name': product_name,
-          'artist_name': artist_name,
-          'number_of_product': number_of_product,
-          'special_color': special_color,
-          'edition_color': edition_color,
-          'number_of_edition': number_of_edition,
-          'owner': "",
-          'date_tranfer': "",
-          'date_update': currentDate, // Set 'date_update' to the current date
-      }
+  // Upload file to S3
+  const s3Params = {
+    Bucket: 'dijiteye-addressables',
+    Key: s3Path,
+    Body: fs.createReadStream(file.path),
+    ContentType: file.mimetype,
+    ACL: 'public-read'
   };
 
-  dynamoDb.put(params, (err, data) => {
-      if (err) {
-          console.error('Unable to add item. Error JSON:', JSON.stringify(err, null, 2));
-          res.status(500).send({ error: 'Could not create digital confirm' });
-      } else {
-          res.status(200).send({ message: 'Digital confirm created successfully' });
+  s3.upload(s3Params, (s3Err, data) => {
+    if (s3Err) {
+      console.error('Error uploading to S3:', s3Err);
+      return res.status(500).send({ error: 'Error uploading file to S3' });
+    }
+
+    // S3 Upload successful, now add to DynamoDB
+    const currentDate = new Date().toISOString();
+    const imageUrl = data.Location; // URL of the uploaded file
+
+    const dynamoParams = {
+      TableName: 'adventurenft-digitalconfirm-carventer',
+      Item: {
+        'hashkey': hashkey,
+        'product_name': product_name,
+        'edition': edition,
+        'year_of_product': year_of_product,
+        'artist_name': artist_name,
+        'material': material,
+        'type': type,
+        'dimension': dimension,
+        'owner': owner,
+        'image_url': imageUrl, // Store image URL in DynamoDB
+        'date_update': currentDate
       }
+    };
+
+    dynamoDb.put(dynamoParams, (err, data) => {
+      if (err) {
+        console.error('Unable to add item. Error JSON:', JSON.stringify(err, null, 2));
+        res.status(500).send({ error: 'Could not create digital confirm' });
+      } else {
+        res.status(200).send({ message: 'Digital confirm created successfully', imageUrl });
+      }
+    });
   });
 });
 
@@ -149,3 +175,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}.`);
 });
+
+//TableName: tableNameAdventuerNFTDigitalConfirm,
